@@ -4,12 +4,28 @@ on:
   issues:
     types: [opened, closed]
 
+# ✅ REQUIRED PERMISSIONS (important fix)
+permissions:
+  issues: write
+  contents: read
+
 jobs:
   issue-handler:
     runs-on: ubuntu-latest
+
     steps:
       - name: Display Issue Event
         run: echo "An issue event has been triggered!"
+
+      # 🔐 Detect Security Issue
+      - name: Check for Security Keywords
+        id: security_check
+        run: |
+          if echo "${{ github.event.issue.title }}" | grep -iE "security|vulnerability|attack|exploit"; then
+            echo "is_security=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_security=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: When Issue is Opened
         if: github.event.action == 'opened'
@@ -19,7 +35,22 @@ jobs:
         if: github.event.action == 'closed'
         run: echo "An issue was closed"
 
-      - name: Add Comment to Issue
+      # 🔹 Add label if security issue
+      - name: Add Security Label
+        if: steps.security_check.outputs.is_security == 'true'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.addLabels({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: ["security"]
+            })
+
+      # 🔹 Comment for normal issue
+      - name: Add Comment to Normal Issue
+        if: steps.security_check.outputs.is_security == 'false' && github.event.action == 'opened'
         uses: actions/github-script@v6
         with:
           script: |
@@ -28,4 +59,17 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: "Thank you for reporting this issue. The team will review it."
+            })
+
+      # 🔹 Comment for security issue
+      - name: Add Comment to Security Issue
+        if: steps.security_check.outputs.is_security == 'true' && github.event.action == 'opened'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: "⚠️ Security issue detected. This has been prioritized by the DevSecOps team."
             })
